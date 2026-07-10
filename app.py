@@ -1,13 +1,14 @@
-import streamlit as tf  # Using 'tf' or standard naming safely
+import streamlit as tf  # Using standard safe naming convention
 import yfinance as yf
 import pandas as pd
 import ta
 import time
+from datetime import datetime, timedelta
 
-# Set page configuration to wide layout to accommodate the rows of cards
+# Set page configuration to wide layout
 tf.set_page_config(page_title="Decision Scanner Dashboard", layout="wide")
 
-# Custom CSS injection to build clean, professional dark-themed trading cards
+# Custom CSS injection for dark-themed trading cards
 tf.markdown("""
 <style>
     .reportview-container { background: #0E1117; }
@@ -35,7 +36,19 @@ tf.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-@tf.cache_data(ttl=3600)  # Cache ticker list for 1 hour
+# --- SIDEBAR CONTROL PANEL ---
+tf.sidebar.header("⚙️ SCANNER CONTROLS")
+
+# Date Picker: Defaults to today
+target_date = tf.sidebar.date_input("Analysis Date", datetime.today())
+is_historical = target_date < datetime.today().date()
+
+if is_historical:
+    tf.sidebar.warning(f"🕒 Time Machine Active: Analyzing market state as of EOD {target_date.strftime('%d-%b-%Y')}")
+else:
+    tf.sidebar.success("⚡ Live Market Mode Active")
+
+@tf.cache_data(ttl=3600)
 def get_nifty_500_tickers():
     try:
         url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
@@ -61,13 +74,22 @@ def calculate_metrics(df):
     df['Vol_ZScore'] = (volume - df['Vol_Mean']) / df['Vol_Std']
     return df
 
-def process_and_score_stock(symbol):
+def process_and_score_stock(symbol, selected_date):
     try:
         ticker = yf.Ticker(symbol)
-        df = ticker.history(period="60d", interval="1d")
-        df = calculate_metrics(df)
-        if df is None: return None
+        
+        # If historical mode, pull slightly more history and cut off at target date
+        if is_historical:
+            start_date = (selected_date - timedelta(days=100)).strftime('%Y-%m-%d')
+            end_date = (selected_date + timedelta(days=1)).strftime('%Y-%m-%d')
+            df = ticker.history(start=start_date, end=end_date, interval="1d")
+        else:
+            df = ticker.history(period="60d", interval="1d")
             
+        df = calculate_metrics(df)
+        if df is None or df.empty: return None
+            
+        # Get the row matching the target date context
         latest = df.iloc[-1]
         prev = df.iloc[-2]
         
@@ -107,7 +129,8 @@ def process_and_score_stock(symbol):
 
 # --- DASHBOARD HEADER ---
 tf.title("🎯 NIFTY 500 DECISION SCANNER")
-tf.subheader("Real-time Institutional Funnel Filtering & Multi-Directional Ranking")
+mode_label = f"Analysis Target: {target_date.strftime('%d-%b-%Y')}"
+tf.subheader(f"Real-time Funnel Filtering & Multi-Directional Ranking ({mode_label})")
 
 if tf.button("🚀 Execute Market Scan", use_container_width=True):
     symbols = get_nifty_500_tickers()
@@ -116,14 +139,13 @@ if tf.button("🚀 Execute Market Scan", use_container_width=True):
     progress_bar = tf.progress(0)
     status_text = tf.empty()
     
-    # Run scan loop
     for idx, symbol in enumerate(symbols):
-        res = process_and_score_stock(symbol)
+        res = process_and_score_stock(symbol, target_date)
         if res: all_opportunities.append(res)
         if idx % 25 == 0:
             pct = int((idx / len(symbols)) * 100)
             progress_bar.progress(pct)
-            status_text.text(f"Processing market components: Analyzing {idx}/500 tickers...")
+            status_text.text(f"Processing timeline data: Analyzing {idx}/500 tickers...")
         time.sleep(0.01)
         
     progress_bar.empty()
@@ -134,9 +156,7 @@ if tf.button("🚀 Execute Market Scan", use_container_width=True):
         buys_df = df_master[df_master['Direction'] == "BUY"].sort_values(by="Score", ascending=False).head(5)
         shorts_df = df_master[df_master['Direction'] == "SHORT"].sort_values(by="Score", ascending=False).head(5)
         
-        # ----------------------------------------------------
         # ROW 1: LONG OPPORTUNITIES (BUYS)
-        # ----------------------------------------------------
         tf.markdown("### 🔥 TOP BULLISH ACCELERATIONS (BUYS)")
         if not buys_df.empty:
             cols = tf.columns(5)
@@ -154,13 +174,11 @@ if tf.button("🚀 Execute Market Scan", use_container_width=True):
                     </div>
                     """, unsafe_allow_html=True)
         else:
-            tf.info("No high-probability long configurations detected across the universe today.")
+            tf.info("No high-probability long configurations detected across the universe for this date.")
 
         tf.markdown("---")
 
-        # ----------------------------------------------------
         # ROW 2: SHORT OPPORTUNITIES (SHORTS)
-        # ----------------------------------------------------
         tf.markdown("### 💀 TOP BEARISH BREAKDOWNS (SHORTS)")
         if not shorts_df.empty:
             cols = tf.columns(5)
@@ -178,6 +196,6 @@ if tf.button("🚀 Execute Market Scan", use_container_width=True):
                     </div>
                     """, unsafe_allow_html=True)
         else:
-            tf.info("No high-probability short configurations detected across the universe today.")
+            tf.info("No high-probability short configurations detected across the universe for this date.")
     else:
-        tf.warning("The funnel excluded all Nifty 500 assets based on current structural parameters.")
+        tf.warning("The funnel excluded all Nifty 500 assets based on the structural criteria for this historical target.")
