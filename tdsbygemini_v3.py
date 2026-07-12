@@ -64,10 +64,7 @@ def get_nifty_500_tickers():
 
 def calculate_metrics(df):
     def analyze_pillar_3_patterns(df, direction):
-    """
-    Analyzes the last 3 days of price action to identify specific 
-    patterns from the reference sheet and outputs (pattern_name, score).
-    """
+    
     if len(df) < 3:
         # Fallback if there aren't enough bars
         latest = df.iloc[-1]
