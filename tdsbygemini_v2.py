@@ -4,6 +4,7 @@ import pandas as pd
 import ta
 import time
 from datetime import datetime, timedelta
+import plotly.graph_objects as go
 
 # Set page configuration to wide layout
 tf.set_page_config(page_title="Decision Scanner Dashboard", layout="wide")
@@ -100,9 +101,15 @@ def process_and_score_stock(symbol, selected_date):
         rsi = latest['RSI']
         is_bull_candle = latest['Close'] > latest['Open']
         
-        # We also store the last 30 days of data for the chart lookup dictionary
-        chart_data = df[['Close', '9_EMA']].tail(30).copy()
-        chart_data.index = chart_data.index.strftime('%Y-%m-%d')
+        # --- FETCH INTRADAY 5-MINUTE DATA FOR POP-UP ---
+        try:
+            start_5m = selected_date.strftime('%Y-%m-%d')
+            end_5m = (selected_date + timedelta(days=1)).strftime('%Y-%m-%d')
+            df_5m = ticker.history(start=start_5m, end=end_5m, interval="5m")
+            if not df_5m.empty:
+                df_5m['9_EMA'] = ta.trend.ema_indicator(df_5m['Close'], window=9)
+        except Exception:
+            df_5m = pd.DataFrame()
         
         # BUY SIGNALS
         is_up_phase = latest['MACD_Line'] > latest['MACD_Signal'] or latest['MACD_Diff'] > prev['MACD_Diff']
@@ -114,7 +121,8 @@ def process_and_score_stock(symbol, selected_date):
             score += 25 if 50 <= rsi <= 68 else (10 if 69 <= rsi <= 75 else 0)
             score += 30 if is_bull_candle else 10
             return {"Ticker": symbol.replace(".NS", ""), "Direction": "BUY", "Score": score, 
-                    "EMA_Dist": round(ema_dist, 2), "Vol_Z": round(z_score, 1), "RSI": round(rsi, 1), "ADX": round(adx, 1), "Chart_DF": chart_data}
+                    "EMA_Dist": round(ema_dist, 2), "Vol_Z": round(z_score, 1), "RSI": round(rsi, 1), 
+                    "ADX": round(adx, 1), "df_5m": df_5m}
 
         # SHORT SIGNALS
         is_down_phase = latest['MACD_Line'] < latest['MACD_Signal'] or latest['MACD_Diff'] < prev['MACD_Diff']
@@ -127,7 +135,8 @@ def process_and_score_stock(symbol, selected_date):
             score += 25 if 32 <= rsi <= 50 else (10 if 25 <= rsi < 32 else 0)
             score += 30 if not is_bull_candle else 10
             return {"Ticker": symbol.replace(".NS", ""), "Direction": "SHORT", "Score": score, 
-                    "EMA_Dist": round(ema_dist, 2), "Vol_Z": round(z_score, 1), "RSI": round(rsi, 1), "ADX": round(adx, 1), "Chart_DF": chart_data}
+                    "EMA_Dist": round(ema_dist, 2), "Vol_Z": round(z_score, 1), "RSI": round(rsi, 1), 
+                    "ADX": round(adx, 1), "df_5m": df_5m}
         return None
     except Exception:
         return None
@@ -168,7 +177,6 @@ if tf.button("🚀 Execute Market Scan", use_container_width=True):
             cols = tf.columns(5)
             for i, (_, row) in enumerate(buys_df.iterrows()):
                 with cols[i]:
-                    # Render the descriptive card data block
                     tf.markdown(f"""
                     <div class="card-container-buy">
                         <div class="rank-badge">RANK #{i+1} • LONG</div>
@@ -181,10 +189,28 @@ if tf.button("🚀 Execute Market Scan", use_container_width=True):
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # Popover configuration attached underneath the HTML block
-                    with tf.popover("📈 View 9-EMA Trend Chart"):
-                        tf.write(f"### {row['Ticker']} - 30-Day Historical Trend")
-                        tf.line_chart(row['Chart_DF'])
+                    # Candlestick Popover
+                    with tf.popover("🕯️ View 5-Min Candles"):
+                        tf.write(f"### {row['Ticker']} Intraday Structure")
+                        df_intraday = row['df_5m']
+                        
+                        if (df_intraday is not None) and (not df_intraday.empty):
+                            fig = go.Figure()
+                            fig.add_trace(go.Candlestick(
+                                x=df_intraday.index, open=df_intraday['Open'], high=df_intraday['High'],
+                                low=df_intraday['Low'], close=df_intraday['Close'], name="5m Candles"
+                            ))
+                            fig.add_trace(go.Scatter(
+                                x=df_intraday.index, y=df_intraday['9_EMA'], mode='lines', 
+                                line=dict(color='#00d2ff', width=1.5), name='9 EMA'
+                            ))
+                            fig.update_layout(
+                                template="plotly_dark", xaxis_rangeslider_visible=False,
+                                margin=dict(l=10, r=10, t=10, b=10), height=300
+                            )
+                            tf.plotly_chart(fig, use_container_width=True)
+                        else:
+                            tf.error("5m intraday data unavailable for this date. (Max history limit: 60 days)")
         else:
             tf.info("No high-probability long configurations detected across the universe for this date.")
 
@@ -198,7 +224,6 @@ if tf.button("🚀 Execute Market Scan", use_container_width=True):
             cols = tf.columns(5)
             for i, (_, row) in enumerate(shorts_df.iterrows()):
                 with cols[i]:
-                    # Render the descriptive card data block
                     tf.markdown(f"""
                     <div class="card-container-short">
                         <div class="rank-badge">RANK #{i+1} • SHORT</div>
@@ -211,10 +236,28 @@ if tf.button("🚀 Execute Market Scan", use_container_width=True):
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # Popover configuration attached underneath the HTML block
-                    with tf.popover("📉 View 9-EMA Trend Chart"):
-                        tf.write(f"### {row['Ticker']} - 30-Day Historical Trend")
-                        tf.line_chart(row['Chart_DF'])
+                    # Candlestick Popover
+                    with tf.popover("🕯️ View 5-Min Candles"):
+                        tf.write(f"### {row['Ticker']} Intraday Structure")
+                        df_intraday = row['df_5m']
+                        
+                        if (df_intraday is not None) and (not df_intraday.empty):
+                            fig = go.Figure()
+                            fig.add_trace(go.Candlestick(
+                                x=df_intraday.index, open=df_intraday['Open'], high=df_intraday['High'],
+                                low=df_intraday['Low'], close=df_intraday['Close'], name="5m Candles"
+                            ))
+                            fig.add_trace(go.Scatter(
+                                x=df_intraday.index, y=df_intraday['9_EMA'], mode='lines', 
+                                line=dict(color='#00d2ff', width=1.5), name='9 EMA'
+                            ))
+                            fig.update_layout(
+                                template="plotly_dark", xaxis_rangeslider_visible=False,
+                                margin=dict(l=10, r=10, t=10, b=10), height=300
+                            )
+                            tf.plotly_chart(fig, use_container_width=True)
+                        else:
+                            tf.error("5m intraday data unavailable for this date. (Max history limit: 60 days)")
         else:
             tf.info("No high-probability short configurations detected across the universe for this date.")
     else:
