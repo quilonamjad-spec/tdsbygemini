@@ -64,7 +64,6 @@ def get_nifty_500_tickers():
 
 def calculate_metrics(df):
     def analyze_pillar_3_patterns(df, direction):
-    
     if len(df) < 3:
         # Fallback if there aren't enough bars
         latest = df.iloc[-1]
