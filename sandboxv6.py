@@ -65,7 +65,9 @@ st.title("🧪 Momentum Sandbox: Snapshot & Trend")
 symbol = st.text_input("Enter Ticker", "RELIANCE.NS").upper()
 
 if st.button("Analyze"):
-    df = yf.Ticker(symbol).history(period="1d", interval="5m").between_time('09:30', '15:30')
+    # Using your cached function from the previous step
+    raw_df = fetch_intraday_data(symbol)
+    df = raw_df.between_time('09:30', '15:30')
     
     if df.empty:
         st.error("No intraday data found.")
@@ -76,27 +78,24 @@ if st.button("Analyze"):
         score, pattern, rsi, ema_d, vol_z = get_full_score(df, direction)
         
         col1, col2 = st.columns([1, 3])
-       
-            
-                # Dynamically set the class based on direction
-        card_class = "card-buy" if direction == "BUY" else "card-short"
         
-        # Define the dynamic border color
+        # Dynamically set the class and color based on direction
+        card_class = "card-buy" if direction == "BUY" else "card-short"
         border_color = "#00c805" if direction == "BUY" else "#ff3b30"
         
         with col1:
             st.markdown(f"""
-                <div class="{card_class}" style="border-top: 5px solid {border_color}; background-color: #151922; padding: 15px; border-radius: 10px;">
-                    <div style="font-size:18px; font-weight:bold;">{symbol}</div>
-                    <div style="font-size:24px; color:{border_color};">{score} PTS</div>
-                    <div>{pattern}</div>
-                    <hr style="border-color:#38435a;">
-                    <div>EMA Dist: {ema_d:.2f}%</div>
-                    <div>RSI: {rsi:.1f}</div>
-                    <div>Vol Z: {vol_z:.2f}σ</div>
-                </div>
-                """, unsafe_allow_html=True)
-         
+            <div class="{card_class}" style="border-top: 5px solid {border_color}; background-color: #151922; padding: 15px; border-radius: 10px;">
+                <div style="font-size:18px; font-weight:bold;">{symbol}</div>
+                <div style="font-size:24px; color:{border_color}; font-weight:bold;">{score} PTS</div>
+                <div style="margin-bottom:10px;">{pattern}</div>
+                <hr style="border-color:#38435a; margin: 10px 0;">
+                <div class="metric-row"><span>EMA Dist:</span><span>{ema_d:.2f}%</span></div>
+                <div class="metric-row"><span>RSI:</span><span>{rsi:.1f}</span></div>
+                <div class="metric-row"><span>Vol Z:</span><span>{vol_z:.2f}σ</span></div>
+            </div>
+            """, unsafe_allow_html=True)
+            
         with col2:
             # Calculate Score History with Negative Multiplier for Shorts
             results = []
@@ -104,7 +103,9 @@ if st.button("Analyze"):
                 s, _, _, _, _ = get_full_score(df.iloc[:i+1], direction)
                 plot_score = s if direction == "BUY" else -s
                 results.append({'Time': df.index[i], 'Score': plot_score})
-            results = [{'Time': df.index[i], 'Score': get_full_score(df.iloc[:i+1], direction)[0]} for i in range(20, len(df))]
-            fig = px.line(pd.DataFrame(results), x='Time', y='Score', title="Score Evolution")
+            
+            fig = px.line(pd.DataFrame(results), x='Time', y='Score', title="Momentum Score Evolution")
+            fig.add_hline(y=0, line_dash="dash", line_color="white")
+            fig.update_traces(line_color=border_color, line_width=3)
             fig.update_layout(template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
