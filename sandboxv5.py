@@ -77,7 +77,7 @@ if st.button("Analyze"):
         
         col1, col2 = st.columns([1, 3])
         with col1:
-             style = "card-buy" if direction == "BUY" else "card-short"
+            
                 st.markdown(f"""
                 <div class="{style}">
                     <div style="font-size:18px; font-weight:bold;">{symbol.replace('.NS', '')}</div>
