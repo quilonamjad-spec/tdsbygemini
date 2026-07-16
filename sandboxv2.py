@@ -37,19 +37,18 @@ def get_full_score(df_slice, direction):
     z_score = (latest['Volume'] - vol_mean) / vol_std if vol_std != 0 else 0
     score += 30 if z_score > 1.0 else (15 if z_score > 0 else 0)
     
-    # 3. ADX (25/10)
     # 3. ADX (25/10) - Safely handle lack of data
-        try:
-            # Check if we have enough data for a 14-period ADX
-            if len(df_slice) > 14:
-                adx_indicator = ta.trend.ADXIndicator(df_slice['High'], df_slice['Low'], df_slice['Close'], window=14)
-                adx = adx_indicator.adx().iloc[-1]
-            else:
-                adx = 0 # Not enough data, treat as neutral
-        except Exception:
-            adx = 0 # Fallback in case of internal calculation error
-            
-        score += 25 if adx > 22 else (10 if adx >= 18 else 0)
+    try:
+        if len(df_slice) > 14:
+            adx_indicator = ta.trend.ADXIndicator(df_slice['High'], df_slice['Low'], df_slice['Close'], window=14)
+            adx = adx_indicator.adx().iloc[-1]
+        else:
+            adx = 0
+    except Exception:
+        adx = 0
+        
+    score += 25 if adx > 22 else (10 if adx >= 18 else 0)
+    
     # 4. RSI (25/10)
     rsi = ta.momentum.rsi(df_slice['Close'], window=14).iloc[-1]
     if direction == "BUY":
