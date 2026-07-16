@@ -12,6 +12,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- DATA FETCHING WITH CACHE ---
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_intraday_data(ticker_symbol):
+    """Fetches data from Yahoo Finance and caches it for 5 minutes."""
+    try:
+        df = yf.Ticker(ticker_symbol).history(period="1d", interval="5m")
+        return df
+    except Exception as e:
+        st.error(f"Error fetching data: {e}")
+        return pd.DataFrame() # Return empty dataframe on error
+
 # --- LOGIC FUNCTIONS ---
 def analyze_pillar_3_patterns(df_slice, direction):
     if len(df_slice) < 3: return "Standard", 10
