@@ -71,9 +71,7 @@ def get_score(latest, df, direction):
             score += 25 if adx > 22 else (10 if adx >= 18 else 0)
             score += 25 if 48 <= rsi <= 70 else (10 if 71 <= rsi <= 78 else 0)
             score += pillar_3_score
-            return { "Direction": "BUY", "Score": score, 
-                    "EMA_Dist": round(ema_dist, 2), "Vol_Z": round(z_score, 1), "RSI": round(rsi, 1), 
-                    "ADX": round(adx, 1), "df_5m": df_5m, "Pattern": pattern_name}
+            return score + p_score, pattern
 
         # --- RELAXED SHORT FILTER GATES (Wider 2.0% Window) ---
         is_down_phase = latest['MACD_Line'] < latest['MACD_Signal'] or latest['MACD_Diff'] < prev['MACD_Diff']
@@ -86,9 +84,7 @@ def get_score(latest, df, direction):
             score += 25 if adx > 22 else (10 if adx >= 18 else 0)
             score += 25 if 30 <= rsi <= 52 else (10 if 22 <= rsi < 30 else 0)
             score += pillar_3_score
-            return { "Direction": "SHORT", "Score": score, 
-                    "EMA_Dist": round(ema_dist, 2), "Vol_Z": round(z_score, 1), "RSI": round(rsi, 1), 
-                    "ADX": round(adx, 1), "df_5m": df_5m, "Pattern": pattern_name}
+            return score + p_score, pattern
 
 # --- UI INTERFACE ---
 st.title("🧪 Watchlist Sandbox Tester")
