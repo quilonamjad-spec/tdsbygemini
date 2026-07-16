@@ -58,16 +58,30 @@ st.title("📊 Integrated Momentum Sandbox")
 symbol = st.text_input("Ticker", "RELIANCE.NS").upper()
 
 if st.button("Generate Trend Graph"):
-    df = yf.Ticker(symbol).history(period="1d", interval="5m")
-    df = df.between_time('09:30', '15:30')
+    # Fetch data
+    ticker = yf.Ticker(symbol)
+    df = ticker.history(period="1d", interval="5m")
     
-    results = []
-    direction = "BUY" if df['Close'].iloc[-1] > ta.trend.ema_indicator(df['Close'], window=9).iloc[-1] else "SHORT"
+    # FIX: Check if dataframe is empty
+    if df.empty:
+        st.error(f"No data found for {symbol}. The market might be closed or the symbol is incorrect.")
+    else:
+        # Proceed with processing only if data exists
+        df = df.between_time('09:30', '15:30')
+        
+        # Check again after filtering time (in case no data falls in that window)
+        if df.empty:
+            st.error("No data found for the requested time window (09:30 - 15:30).")
+        else:
+           
     
-    for i in range(20, len(df)):
-        score = get_full_score(df.iloc[:i+1], direction)
-        results.append({'Time': df.index[i], 'Score': score})
-    
-    fig = px.line(pd.DataFrame(results), x='Time', y='Score', title=f"Full Criteria Score: {symbol}")
-    fig.update_layout(template="plotly_dark")
-    st.plotly_chart(fig)
+            results = []
+            direction = "BUY" if df['Close'].iloc[-1] > ta.trend.ema_indicator(df['Close'], window=9).iloc[-1] else "SHORT"
+            
+            for i in range(20, len(df)):
+                score = get_full_score(df.iloc[:i+1], direction)
+                results.append({'Time': df.index[i], 'Score': score})
+            
+            fig = px.line(pd.DataFrame(results), x='Time', y='Score', title=f"Full Criteria Score: {symbol}")
+            fig.update_layout(template="plotly_dark")
+            st.plotly_chart(fig)
