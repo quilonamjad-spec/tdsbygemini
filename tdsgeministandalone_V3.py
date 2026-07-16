@@ -70,7 +70,7 @@ def get_score(latest, df, direction):
             score += 30 if z_score > 1.0 else (15 if z_score > 0 else 0)
             score += 25 if adx > 22 else (10 if adx >= 18 else 0)
             score += 25 if 48 <= rsi <= 70 else (10 if 71 <= rsi <= 78 else 0)
-            score += pillar_3_score
+            pattern, p_score = analyze_pillar_3_patterns(df, direction)
             return score + p_score, pattern
 
         # --- RELAXED SHORT FILTER GATES (Wider 2.0% Window) ---
@@ -83,7 +83,7 @@ def get_score(latest, df, direction):
             score += 30 if z_score > 1.0 else (15 if z_score > 0 else 0)
             score += 25 if adx > 22 else (10 if adx >= 18 else 0)
             score += 25 if 30 <= rsi <= 52 else (10 if 22 <= rsi < 30 else 0)
-            score += pillar_3_score
+            pattern, p_score = analyze_pillar_3_patterns(df, direction)
             return score + p_score, pattern
 
 # --- UI INTERFACE ---
