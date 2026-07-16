@@ -98,11 +98,24 @@ if st.button("Analyze"):
             
         with col2:
             # Calculate Score History with Negative Multiplier for Shorts
+           with col2:
             results = []
             for i in range(20, len(df)):
-                s, _, _, _, _ = get_full_score(df.iloc[:i+1], direction)
-                plot_score = s if direction == "BUY" else -s
+                # Get the slice up to the current time
+                df_slice = df.iloc[:i+1]
+                
+                # Determine direction dynamically for this specific point in time
+                ema9 = ta.trend.ema_indicator(df_slice['Close'], window=9).iloc[-1]
+                current_direction = "BUY" if df_slice['Close'].iloc[-1] > ema9 else "SHORT"
+                
+                # Calculate score using the dynamic direction
+                s, _, _, _, _ = get_full_score(df_slice, current_direction)
+                
+                # Apply negative multiplier only if CURRENT direction is SHORT
+                plot_score = s if current_direction == "BUY" else -s
                 results.append({'Time': df.index[i], 'Score': plot_score})
+            
+            # ... [Rest of your Plotly code remains the same]
             
             fig = px.line(pd.DataFrame(results), x='Time', y='Score', title="Momentum Score Evolution")
             fig.add_hline(y=0, line_dash="dash", line_color="white")
