@@ -77,16 +77,16 @@ if st.button("Analyze"):
         
         col1, col2 = st.columns([1, 3])
         with col1:
-            st.markdown(f"""
-            <div class="card-buy">
-                <div style="font-size:18px; font-weight:bold;">{symbol}</div>
-                <div style="font-size:24px; color:#00c805;">{score} PTS</div>
-                <div>{pattern}</div>
-                <hr>
-                <div>EMA Dist: {ema_d:.2f}%</div>
-                <div>RSI: {rsi:.1f}</div>
-                <div>Vol Z: {vol_z:.2f}σ</div>
-            </div>
+             style = "card-buy" if direction == "BUY" else "card-short"
+                st.markdown(f"""
+                <div class="{style}">
+                    <div style="font-size:18px; font-weight:bold;">{symbol.replace('.NS', '')}</div>
+                    <div style="font-size:20px; font-weight:bold; color:{'#00c805' if direction=='BUY' else '#ff3b30'};">{score} PTS</div>
+                    <div style="font-size:11px; margin-bottom:10px;">{pattern}</div>
+                    <div class="metric-row"><span>EMA Dist:</span><span>{latest['EMA_Dist']:.2f}%</span></div>
+                    <div class="metric-row"><span>RSI:</span><span>{latest['RSI']:.1f}</span></div>
+                    <div class="metric-row"><span>Vol Z:</span><span>{latest['Vol_ZScore']:.1f}σ</span></div>
+                </div>
             """, unsafe_allow_html=True)
             
         with col2:
