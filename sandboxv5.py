@@ -76,7 +76,7 @@ if st.button("Analyze"):
         score, pattern, rsi, ema_d, vol_z = get_full_score(df, direction)
         
         col1, col2 = st.columns([1, 3])
-        with col1:
+       
             
                 # Dynamically set the class based on direction
         card_class = "card-buy" if direction == "BUY" else "card-short"
