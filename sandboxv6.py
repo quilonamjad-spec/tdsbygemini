@@ -29,19 +29,19 @@ def analyze_pillar_3_patterns(df_slice, direction):
     c1, c2, c3 = df_slice.iloc[-1], df_slice.iloc[-2], df_slice.iloc[-3]
     is_green1, is_green2, is_green3 = c1['Close'] > c1['Open'], c2['Close'] > c2['Open'], c3['Close'] > c3['Open']
     if direction == "BUY":
-        if is_green1 and is_green2 and is_green3: return "Three White Soldiers", 45
-        if not is_green2 and is_green1: return "Bullish Engulfing", 40
-        return "Standard Green", 30
+        if is_green1 and is_green2 and is_green3: return "Three White Soldiers", 35
+        if not is_green2 and is_green1: return "Bullish Engulfing", 25
+        return "Standard Green", 20
     else:
-        if not is_green1 and not is_green2 and not is_green3: return "Three Black Crows", 45
-        if is_green2 and not is_green1: return "Bearish Engulfing", 40
-        return "Standard Red", 30
+        if not is_green1 and not is_green2 and not is_green3: return "Three Black Crows", 35
+        if is_green2 and not is_green1: return "Bearish Engulfing", 25
+        return "Standard Red", 20
 
 def get_full_score(df_slice, direction):
     latest = df_slice.iloc[-1]
     ema9 = ta.trend.ema_indicator(df_slice['Close'], window=9).iloc[-1]
     ema_dist = ((latest['Close'] - ema9) / ema9) * 100
-    score = 40 if abs(ema_dist) <= 0.3 else 25
+    score = 30 if abs(ema_dist) <= 0.3 else 20
     
     vol_mean = df_slice['Volume'].rolling(20).mean().iloc[-1]
     vol_std = df_slice['Volume'].rolling(20).std().iloc[-1]
