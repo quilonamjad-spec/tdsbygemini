@@ -78,18 +78,25 @@ if st.button("Analyze"):
         col1, col2 = st.columns([1, 3])
         with col1:
             
-                st.markdown(f"""
-                <div class="card-buy">
+                # Dynamically set the class based on direction
+        card_class = "card-buy" if direction == "BUY" else "card-short"
+        
+        # Define the dynamic border color
+        border_color = "#00c805" if direction == "BUY" else "#ff3b30"
+        
+        with col1:
+            st.markdown(f"""
+                <div class="{card_class}" style="border-top: 5px solid {border_color}; background-color: #151922; padding: 15px; border-radius: 10px;">
                     <div style="font-size:18px; font-weight:bold;">{symbol}</div>
-                    <div style="font-size:24px; color:#00c805;">{score} PTS</div>
+                    <div style="font-size:24px; color:{border_color};">{score} PTS</div>
                     <div>{pattern}</div>
-                    <hr>
+                    <hr style="border-color:#38435a;">
                     <div>EMA Dist: {ema_d:.2f}%</div>
                     <div>RSI: {rsi:.1f}</div>
                     <div>Vol Z: {vol_z:.2f}σ</div>
                 </div>
-            """, unsafe_allow_html=True)
-            
+                """, unsafe_allow_html=True)
+         
         with col2:
             results = [{'Time': df.index[i], 'Score': get_full_score(df.iloc[:i+1], direction)[0]} for i in range(20, len(df))]
             fig = px.line(pd.DataFrame(results), x='Time', y='Score', title="Score Evolution")
