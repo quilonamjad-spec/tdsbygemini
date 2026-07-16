@@ -39,7 +39,7 @@ def get_full_score(df_slice, direction):
     
     # 3. ADX (25/10)
     # 3. ADX (25/10) - Safely handle lack of data
-        
+        try:
             # Check if we have enough data for a 14-period ADX
             if len(df_slice) > 14:
                 adx_indicator = ta.trend.ADXIndicator(df_slice['High'], df_slice['Low'], df_slice['Close'], window=14)
