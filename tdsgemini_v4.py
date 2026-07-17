@@ -136,11 +136,11 @@ def process_and_score_stock(symbol, selected_date):
         if not (50 <= latest['Close'] <= 7000): return None
         
         # --- 2. VOLUME GATE (1.5x 20-day Volume MA) ---
-        if not (latest['Volume'] > (1.5 * latest['Volume_MA_20'])): return None
+        if not (latest['Volume'] > (1.2 * latest['Volume_MA_20'])): return None
         
         # --- 3. TREND ALIGNMENT (SMA 50) ---
-        is_bullish_trend = latest['Close'] > latest['SMA_50']
-        is_bearish_trend = latest['Close'] < latest['SMA_50']
+        is_bullish_trend = latest['Close'] > (latest['SMA_50']*0.99)
+        is_bearish_trend = latest['Close'] < (latest['SMA_50']*0.99)
         
         # --- 4. DATA PREP FOR INTRADAY CONFIRMATION ---
         try:
