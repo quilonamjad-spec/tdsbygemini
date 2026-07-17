@@ -1,0 +1,316 @@
+import streamlit as tf  # Custom safe shorthand alias
+import yfinance as yf
+import pandas as pd
+import ta
+import time
+from datetime import datetime, timedelta
+import plotly.graph_objects as go
+
+# Set page configuration to wide layout
+tf.set_page_config(page_title="Decision Scanner Dashboard", layout="wide")
+
+# Custom CSS injection for dark-themed trading cards
+tf.markdown("""
+<style>
+    .reportview-container { background: #0E1117; }
+    .card-container-buy {
+        background-color: #151922;
+        border-radius: 10px;
+        padding: 15px;
+        border-top: 5px solid #00c805;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.3);
+    }
+    .card-container-short {
+        background-color: #151922;
+        border-radius: 10px;
+        padding: 15px;
+        border-top: 5px solid #ff3b30;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.3);
+    }
+    .ticker-title { font-size: 20px; font-weight: bold; color: #ffffff; margin-bottom: 2px; }
+    .rank-badge { font-size: 12px; color: #8a99ad; font-weight: 600; text-transform: uppercase; }
+    .score-badge { background-color: #1e2433; padding: 4px 8px; border-radius: 5px; font-weight: bold; font-size: 14px; text-align: center; margin: 8px 0px; }
+    .metric-row { display: flex; justify-content: space-between; margin-top: 6px; font-size: 13px; color: #d1d4dc; }
+    .metric-val { font-weight: bold; color: #ffffff; }
+    div.stPopover > button {
+        width: 100%;
+        background-color: #1e2433 !important;
+        color: #ffffff !important;
+        border: 1px solid #38435a !important;
+        margin-top: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --- SIDEBAR CONTROL PANEL ---
+tf.sidebar.header("⚙️ SCANNER CONTROLS")
+target_date = tf.sidebar.date_input("Analysis Date", datetime.today())
+is_historical = target_date < datetime.today().date()
+
+if is_historical:
+    tf.sidebar.warning(f"🕒 Time Machine Active: Analyzing market state as of EOD {target_date.strftime('%d-%b-%Y')}")
+else:
+    tf.sidebar.success("⚡ Live Market Mode Active")
+
+@tf.cache_data(ttl=3600)
+def get_nifty_500_tickers():
+    try:
+        url = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
+        df = pd.read_csv(url)
+        return [f"{sym}.NS" for sym in df['Symbol'].tolist()]
+    except Exception:
+        return ["RELIANCE.NS", "SUNPHARMA.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS"]
+
+def calculate_metrics(df):
+    if len(df) < 35: return None
+    close = df['Close']
+    volume = df['Volume']
+    df['9_EMA'] = ta.trend.ema_indicator(close, window=9)
+    df['EMA_Dist'] = ((close - df['9_EMA']) / df['9_EMA']) * 100
+    macd_obj = ta.trend.MACD(close)
+    df['MACD_Line'] = macd_obj.macd()
+    df['MACD_Signal'] = macd_obj.macd_signal()
+    df['MACD_Diff'] = macd_obj.macd_diff()
+    df['RSI'] = ta.momentum.rsi(close, window=14)
+    df['ADX'] = ta.trend.ADXIndicator(df['High'], df['Low'], close, window=14).adx()
+    df['Vol_Mean'] = volume.rolling(window=20).mean()
+    df['Vol_Std'] = volume.rolling(window=20).std()
+    df['Vol_ZScore'] = (volume - df['Vol_Mean']) / df['Vol_Std']
+    return df
+
+def analyze_pillar_3_patterns(df, direction):
+    if len(df) < 3:
+        latest = df.iloc[-1]
+        is_bullish_day = latest['Close'] > latest['Open']
+        if direction == "BUY":
+            return "Standard", (30 if is_bullish_day else 10)
+        else:
+            return "Standard", (30 if not is_bullish_day else 10)
+
+    c1 = df.iloc[-1]   # Today
+    c2 = df.iloc[-2]   # Yesterday
+    c3 = df.iloc[-3]   # 2 Days Ago
+
+    body1 = abs(c1['Close'] - c1['Open'])
+    body1 = 0.001 if body1 == 0 else body1
+    
+    is_green1 = c1['Close'] > c1['Open']
+    is_green2 = c2['Close'] > c2['Open']
+    is_green3 = c3['Close'] > c3['Open']
+
+    lower_wick1 = min(c1['Open'], c1['Close']) - c1['Low']
+    upper_wick1 = c1['High'] - max(c1['Open'], c1['Close'])
+
+    if direction == "BUY":
+        if is_green1 and is_green2 and is_green3:
+            if c1['Close'] > c2['Close'] > c3['Close'] and c1['Open'] > c2['Open'] > c3['Open']:
+                return "Three White Soldiers", 45
+        if not is_green2 and is_green1:
+            if c1['Close'] >= c2['Open'] and c1['Open'] <= c2['Close']:
+                return "Bullish Engulfing", 40
+        if lower_wick1 >= (2 * body1) and upper_wick1 <= (0.4 * body1):
+            return "Hammer", 35
+        return "Standard Green", (30 if is_green1 else 10)
+    else:
+        if not is_green1 and not is_green2 and not is_green3:
+            if c1['Close'] < c2['Close'] < c3['Close'] and c1['Open'] < c2['Open'] < c3['Open']:
+                return "Three Black Crows", 45
+        if is_green2 and not is_green1:
+            if c1['Close'] <= c2['Open'] and c1['Open'] >= c2['Close']:
+                return "Bearish Engulfing", 40
+        if upper_wick1 >= (2 * body1) and lower_wick1 <= (0.4 * body1):
+            return "Shooting Star", 35
+        return "Standard Red", (30 if not is_green1 else 10)
+
+def process_and_score_stock(symbol, selected_date):
+    try:
+        ticker = yf.Ticker(symbol)
+        # Fetch 60 days to calculate 50-day SMA and Volume MA
+        df = ticker.history(period="60d", interval="1d")
+        df = calculate_metrics(df) # Must include SMA_50 and Volume_MA_20
+        
+        if df is None or len(df) < 50: return None
+        latest = df.iloc[-1]
+        
+        # --- 1. PRICE GATE (50 - 7000) ---
+        if not (50 <= latest['Close'] <= 7000): return None
+        
+        # --- 2. VOLUME GATE (1.5x 20-day Volume MA) ---
+        if not (latest['Volume'] > (1.5 * latest['Volume_MA_20'])): return None
+        
+        # --- 3. TREND ALIGNMENT (SMA 50) ---
+        is_bullish_trend = latest['Close'] > latest['SMA_50']
+        is_bearish_trend = latest['Close'] < latest['SMA_50']
+        
+        # --- 4. DATA PREP FOR INTRADAY CONFIRMATION ---
+        try:
+            start_5m = selected_date.strftime('%Y-%m-%d')
+            end_5m = (selected_date + timedelta(days=1)).strftime('%Y-%m-%d')
+            df_5m = ticker.history(start=start_5m, end=end_5m, interval="5m")
+            if df_5m.empty: return None
+        except: return None
+            
+        # --- 5. PATTERN DETECTION & SCORING ---
+        res = None
+        
+        # BUY GATE
+        if is_bullish_trend and (0 <= latest['EMA_Dist'] <= 2.0):
+            pattern_name, p_score = analyze_pillar_3_patterns(df_5m, "BUY")
+            score = 70 + p_score # Base score + Pattern bonus
+            res = {"Ticker": symbol.replace(".NS", ""), "Direction": "BUY", "Score": score, 
+                   "EMA_Dist": round(latest['EMA_Dist'], 2), "Vol_Z": round(latest['Vol_ZScore'], 1), 
+                   "RSI": round(latest['RSI'], 1), "Pattern": pattern_name, "df_5m": df_5m}
+            
+        # SHORT GATE
+        elif is_bearish_trend and (-2.0 <= latest['EMA_Dist'] <= 0):
+            pattern_name, p_score = analyze_pillar_3_patterns(df_5m, "SHORT")
+            score = 70 + p_score
+            res = {"Ticker": symbol.replace(".NS", ""), "Direction": "SHORT", "Score": score, 
+                   "EMA_Dist": round(latest['EMA_Dist'], 2), "Vol_Z": round(latest['Vol_ZScore'], 1), 
+                   "RSI": round(latest['RSI'], 1), "Pattern": pattern_name, "df_5m": df_5m}
+            
+        return res
+    except Exception:
+        return None
+        
+        # --- RELAXED BUY FILTER GATES (Wider 2.0% Window) ---
+        is_up_phase = latest['MACD_Line'] > latest['MACD_Signal'] or latest['MACD_Diff'] > prev['MACD_Diff']
+        if is_up_phase and (0 <= ema_dist <= 2.0):
+            pattern_name, pillar_3_score = analyze_pillar_3_patterns(df, "BUY")
+            score = 0
+            score += 40 if ema_dist <= 0.3 else 25
+            score += 30 if z_score > 1.0 else (15 if z_score > 0 else 0)
+            score += 25 if adx > 22 else (10 if adx >= 18 else 0)
+            score += 25 if 48 <= rsi <= 70 else (10 if 71 <= rsi <= 78 else 0)
+            score += pillar_3_score
+            return {"Ticker": symbol.replace(".NS", ""), "Direction": "BUY", "Score": score, 
+                    "EMA_Dist": round(ema_dist, 2), "Vol_Z": round(z_score, 1), "RSI": round(rsi, 1), 
+                    "ADX": round(adx, 1), "df_5m": df_5m, "Pattern": pattern_name}
+
+        # --- RELAXED SHORT FILTER GATES (Wider 2.0% Window) ---
+        is_down_phase = latest['MACD_Line'] < latest['MACD_Signal'] or latest['MACD_Diff'] < prev['MACD_Diff']
+        if is_down_phase and (-2.0 <= ema_dist <= 0):
+            pattern_name, pillar_3_score = analyze_pillar_3_patterns(df, "SHORT")
+            score = 0
+            abs_dist = abs(ema_dist)
+            score += 40 if abs_dist <= 0.3 else 25
+            score += 30 if z_score > 1.0 else (15 if z_score > 0 else 0)
+            score += 25 if adx > 22 else (10 if adx >= 18 else 0)
+            score += 25 if 30 <= rsi <= 52 else (10 if 22 <= rsi < 30 else 0)
+            score += pillar_3_score
+            return {"Ticker": symbol.replace(".NS", ""), "Direction": "SHORT", "Score": score, 
+                    "EMA_Dist": round(ema_dist, 2), "Vol_Z": round(z_score, 1), "RSI": round(rsi, 1), 
+                    "ADX": round(adx, 1), "df_5m": df_5m, "Pattern": pattern_name}
+        return None
+    except Exception:
+        return None
+
+# --- DASHBOARD HEADER ---
+tf.title("🎯 NIFTY 500 DECISION SCANNER")
+tf.subheader(f"Adaptive Funnel Filtering & Multi-Directional Ranking ({target_date.strftime('%d-%b-%Y')})")
+
+if tf.button("🚀 Execute Market Scan", use_container_width=True):
+    symbols = get_nifty_500_tickers()
+    all_opportunities = []
+    
+    progress_bar = tf.progress(0)
+    status_text = tf.empty()
+    
+    for idx, symbol in enumerate(symbols):
+        res = process_and_score_stock(symbol, target_date)
+        if res: all_opportunities.append(res)
+        if idx % 25 == 0:
+            pct = int((idx / len(symbols)) * 100)
+            progress_bar.progress(pct)
+            status_text.text(f"Processing data streams: Analyzing {idx}/500 tickers...")
+        time.sleep(0.01)
+        
+    progress_bar.empty()
+    status_text.empty()
+
+    if all_opportunities:
+        df_master = pd.DataFrame(all_opportunities)
+        buys_df = df_master[df_master['Direction'] == "BUY"].sort_values(by="Score", ascending=False).head(5)
+        shorts_df = df_master[df_master['Direction'] == "SHORT"].sort_values(by="Score", ascending=False).head(5)
+        
+        # LONG OPPORTUNITIES (BUYS)
+        tf.markdown("### 🔥 TOP BULLISH ACCELERATIONS (BUYS)")
+        if not buys_df.empty:
+            cols = tf.columns(5)
+            for i, (_, row) in enumerate(buys_df.iterrows()):
+                with cols[i]:
+                    tf.markdown(f"""
+                    <div class="card-container-buy">
+                        <div class="rank-badge">RANK #{i+1} • LONG</div>
+                        <div class="ticker-title">{row['Ticker']}</div>
+                        <div class="score-badge" style="color: #00c805;">{int(row['Score'])} PTS</div>
+                        <div style="font-size: 11px; color: #00c805; font-weight: bold; margin-bottom: 6px; text-align: center;">PATTERN: {row['Pattern']}</div>
+                        <div class="metric-row"><span>9 EMA Dist:</span><span class="metric-val">{row['EMA_Dist']}%</span></div>
+                        <div class="metric-row"><span>Vol Z-Score:</span><span class="metric-val">{row['Vol_Z']}σ</span></div>
+                        <div class="metric-row"><span>RSI (14):</span><span class="metric-val">{row['RSI']}</span></div>
+                        <div class="metric-row"><span>ADX Trend:</span><span class="metric-val">{row['ADX']}</span></div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    with tf.popover("🕯️ View 5-Min Candles"):
+                        tf.write(f"### {row['Ticker']} Intraday Structure")
+                        df_intraday = row['df_5m']
+                        if (df_intraday is not None) and (not df_intraday.empty):
+                            fig = go.Figure()
+                            fig.add_trace(go.Candlestick(
+                                x=df_intraday.index, open=df_intraday['Open'], high=df_intraday['High'],
+                                low=df_intraday['Low'], close=df_intraday['Close'], name="5m Candles"
+                            ))
+                            fig.add_trace(go.Scatter(
+                                x=df_intraday.index, y=df_intraday['9_EMA'], mode='lines', 
+                                line=dict(color='#00d2ff', width=1.5), name='9 EMA'
+                            ))
+                            fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=10, b=10), height=300)
+                            tf.plotly_chart(fig, use_container_width=True)
+                        else:
+                            tf.error("5m intraday data unavailable for this date. (Max history limit: 60 days)")
+        else:
+            tf.info("No long configurations detected under current parameters.")
+
+        tf.markdown("---")
+
+        # SHORT OPPORTUNITIES (SHORTS)
+        tf.markdown("### 💀 TOP BEARISH BREAKDOWNS (SHORTS)")
+        if not shorts_df.empty:
+            cols = tf.columns(5)
+            for i, (_, row) in enumerate(shorts_df.iterrows()):
+                with cols[i]:
+                    tf.markdown(f"""
+                    <div class="card-container-short">
+                        <div class="rank-badge">RANK #{i+1} • SHORT</div>
+                        <div class="ticker-title">{row['Ticker']}</div>
+                        <div class="score-badge" style="color: #ff3b30;">{int(row['Score'])} PTS</div>
+                        <div style="font-size: 11px; color: #ff3b30; font-weight: bold; margin-bottom: 6px; text-align: center;">PATTERN: {row['Pattern']}</div>
+                        <div class="metric-row"><span>9 EMA Dist:</span><span class="metric-val">{row['EMA_Dist']}%</span></div>
+                        <div class="metric-row"><span>Vol Z-Score:</span><span class="metric-val">{row['Vol_Z']}σ</span></div>
+                        <div class="metric-row"><span>RSI (14):</span><span class="metric-val">{row['RSI']}</span></div>
+                        <div class="metric-row"><span>ADX Trend:</span><span class="metric-val">{row['ADX']}</span></div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    with tf.popover("🕯️ View 5-Min Candles"):
+                        tf.write(f"### {row['Ticker']} Intraday Structure")
+                        df_intraday = row['df_5m']
+                        if (df_intraday is not None) and (not df_intraday.empty):
+                            fig = go.Figure()
+                            fig.add_trace(go.Candlestick(
+                                x=df_intraday.index, open=df_intraday['Open'], high=df_intraday['High'],
+                                low=df_intraday['Low'], close=df_intraday['Close'], name="5m Candles"
+                            ))
+                            fig.add_trace(go.Scatter(
+                                x=df_intraday.index, y=df_intraday['9_EMA'], mode='lines', 
+                                line=dict(color='#00d2ff', width=1.5), name='9 EMA'
+                            ))
+                            fig.update_layout(template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=10, b=10), height=300)
+                            tf.plotly_chart(fig, use_container_width=True)
+                        else:
+                            tf.error("5m intraday data unavailable for this date. (Max history limit: 60 days)")
+        else:
+            tf.info("No short configurations detected under current parameters.")
+    else:
+        tf.warning("The funnel excluded all Nifty 500 assets based on the structural criteria for this target.")
